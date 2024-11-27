@@ -721,6 +721,21 @@ static struct flb_calyptia *config_init(struct flb_output_instance *ins,
         return NULL;
     }
 
+    ctx->metrics_endpoint = flb_sds_create_size(256);
+    if (!ctx->metrics_endpoint) {
+        flb_free(ctx);
+        return NULL;
+    }
+
+#ifdef FLB_HAVE_CHUNK_TRACE
+    ctx->trace_endpoint = flb_sds_create_size(256);
+    if (!ctx->trace_endpoint) {
+        flb_sds_destroy(ctx->metrics_endpoint);
+        flb_free(ctx);
+        return NULL;
+    }
+#endif
+
     /* api_key */
     if (!ctx->api_key) {
         flb_plg_error(ctx->ins, "configuration 'api_key' is missing");
@@ -905,6 +920,7 @@ static void cb_calyptia_flush(struct flb_event_chunk *event_chunk,
     struct flb_http_client *c = NULL;
     struct flb_calyptia *ctx = out_context;
     struct cmt *cmt;
+    flb_sds_t json;
     (void) i_ins;
     (void) config;
 
@@ -981,12 +997,13 @@ static void cb_calyptia_flush(struct flb_event_chunk *event_chunk,
     }
 
 #ifdef FLB_HAVE_CHUNK_TRACE
-    if (event_chunk->type == (FLB_EVENT_TYPE_LOGS | FLB_EVENT_TYPE_HAS_TRACE)) {
-        flb_sds_t json = flb_pack_msgpack_to_json_format(event_chunk->data,
-                                                        event_chunk->size,
-                                                        FLB_PACK_JSON_FORMAT_STREAM,
-                                                        FLB_PACK_JSON_DATE_DOUBLE,
-                                                        NULL);
+    if (event_chunk->type & FLB_EVENT_TYPE_LOGS &&
+        event_chunk->type & FLB_EVENT_TYPE_HAS_TRACE) {
+        json = flb_pack_msgpack_to_json_format(event_chunk->data,
+                                            event_chunk->size,
+                                            FLB_PACK_JSON_FORMAT_STREAM,
+                                            FLB_PACK_JSON_DATE_DOUBLE,
+                                            NULL);
         if (json == NULL) {
             flb_upstream_conn_release(u_conn);
             FLB_OUTPUT_RETURN(FLB_RETRY);
